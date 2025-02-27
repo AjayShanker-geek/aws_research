@@ -42,10 +42,8 @@ jupyter nbconvert --to script  Assignment\ 1\ NLP-.ipynb
 python3  Assignment\ 1\ NLP-.py
 
 ```
-```
-
-
 # After Running the Instace
+
 
 ```bash
 
