@@ -47,9 +47,8 @@ python3  Assignment\ 1\ NLP-.py
 
 ```bash
 
-cd aws_reasearch/python-ing
+cd aws_research/python-ing
 source myenv/bin/activate
 python3  Assignment\ 1\ NLP-.py
 
-```
 ```
