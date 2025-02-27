@@ -1,9 +1,8 @@
 # Overview
 
-
 # Sync AWS S3
 
-To sync storage from `AWS S3` to `EC2` that holds data for the project. 
+To sync storage from `AWS S3` to `EC2` that holds data for the project.
 
 > [!WARNING]  
 > Sync ONLY **Data** files
@@ -14,7 +13,6 @@ aws configure # allow access to AWS S3
 aws s3 ls     # check if you can list the bucket
 aws s3 cp s3://python-ing .
 ```
-
 
 # Install Dependencies
 
@@ -34,7 +32,6 @@ source myenv/bin/activate # important to activate
 pip3 install -r requirements.txt
 ```
 
-
 # Execute Jupyter as Python Script
 
 ```bash
@@ -42,8 +39,8 @@ jupyter nbconvert --to script  Assignment\ 1\ NLP-.ipynb
 python3  Assignment\ 1\ NLP-.py
 
 ```
-# After Running the Instace
 
+# After Running the Instance
 
 ```bash
 
