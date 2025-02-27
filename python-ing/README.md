@@ -21,7 +21,7 @@ aws s3 cp s3://python-ing .
 ```bash
 
 sudo apt update
-sudo apt install python3-venv python3-pip jupyter jupyter-notebook  -y
+sudo apt install python3-venv python3-pip jupyter jupyter-nbconvert -y
 ```
 
 # Create Virtual Environment and Activate
@@ -35,9 +35,11 @@ pip3 install -r requirements.txt
 ```
 
 
-# Execute Jupyter without Notebook
+# Execute Jupyter as Python Script
 
 ```bash
-jupyter nbconvert --to notebook --execute Assignment 1 NLP-.ipynb
+jupyter nbconvert --to script  Assignment\ 1\ NLP-.ipynb
+python3  Assignment\ 1\ NLP-.py
+
 ```
 ```
