@@ -25,7 +25,8 @@ sudo apt install -y r-base-core r-cran-sf
 
 
 # R 
-R 
+sudo R 
+install.packages("readxl")
 install.packages("readxl")
 install.packages("dplyr")
 install.packages("RColorBrewer")
@@ -33,6 +34,7 @@ install.packages("gridExtra")
 install.packages("ggplot2")
 install.packages("grid")
 install.packages("png")
+
 
 ```
 
