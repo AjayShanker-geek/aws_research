@@ -11,6 +11,8 @@ The purpose of the project is to run project analysis on `AWS EC2` and help a gr
 # TODO: Add github link
 git clone ...
 ```
+# AWS S3 
+
+```bash
+sudo snap install aws-cli --classic
 ```
-
-
