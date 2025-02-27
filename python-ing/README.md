@@ -21,7 +21,7 @@ aws s3 cp s3://python-ing .
 ```bash
 
 sudo apt update
-sudo apt install python3-venv python3-pip jupyter jupyter-nbconvert -y
+sudo apt install python3-venv python3-pip jupyter-nbconvert -y
 ```
 
 # Create Virtual Environment and Activate
@@ -39,6 +39,18 @@ pip3 install -r requirements.txt
 
 ```bash
 jupyter nbconvert --to script  Assignment\ 1\ NLP-.ipynb
+python3  Assignment\ 1\ NLP-.py
+
+```
+```
+
+
+# After Running the Instace
+
+```bash
+
+cd aws_reasearch/python-ing
+source myenv/bin/activate
 python3  Assignment\ 1\ NLP-.py
 
 ```

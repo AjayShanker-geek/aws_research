@@ -18,7 +18,6 @@ aws s3 sync <s3://bucket-name> </path/to/local/folder>
 
 ```bash
 
-```bash
 
 # Skip R from compiling from source
 sudo apt update
