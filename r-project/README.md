@@ -21,12 +21,18 @@ aws s3 sync <s3://bucket-name> </path/to/local/folder>
 
 # Skip R from compiling from source
 sudo apt update
-sudo apt install -y r-cran-sf
+sudo apt install -y r-base-core r-cran-sf
 
 
 # R 
 R 
-install.packages("...")
+install.packages("readxl")
+install.packages("dplyr")
+install.packages("RColorBrewer")
+install.packages("gridExtra")
+install.packages("ggplot2")
+install.packages("grid")
+install.packages("png")
 
 ```
 
