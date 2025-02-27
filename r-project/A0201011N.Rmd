@@ -1,0 +1,594 @@
+---
+title: "ST5226 Project"
+author: "Ryhana Aminnuddin Rasidi (A0201011N)"
+date: "2024-11-10"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## PART I (30 MARKS): ANALYSIS OF LIP CANCER DATA IN SCOTLAND
+
+This part consists of several problems related to the data file `Scotland.rds`. The data set contains an `sf` object that consists of the following variables:
+
+- **`cancer`**: number of lip cancer cases in the district
+- **`expected`**: expected number
+- **`logratio`**: log transformed ratio = log(Cancer/expected). The last two records have used a correction with Cancer = 0.5 because the recorded cancer counts are zero.
+- **`varlogratio`**: the variance of the logratio, depends on the number of cases and the expected count
+- **`northkm`**: Northing, in km, approximately centered so 0 is the location of Stirling
+- **`eastkm`**: Easting, in km, approximately centered so 0 is the location of Stirling
+- **`percentAFF`**: percent of the population in Agriculture, Forestry and Fisheries.
+
+Why is Stirling used as the center? Historically, Stirling served as the medieval capital of Scotland and lies close to the geographical center of the country. It's perhaps most renowned for the Battle of Stirling Bridge, where the Scottish forces led by William Wallace and Andrew Moray defeated the English army. This battle was famously depicted in Mel Gibson's 1995 film _Braveheart_ - though, interestingly, the movie omits the bridge that played a critical role in the actual battle.
+
+## Question 1
+
+(15 marks) Explore the spatial autocorrelation.
+
+(a) (3 marks) Create three plots for the $k$-nearest neighbors of all regions, for the values of $k=1, 2, 3$. For each of the three plots, are all the regions connected to the graph?
+
+```{r, warning=FALSE, message=FALSE}
+library(sf)
+library(spdep)
+
+scotland <- readRDS("Scotland.rds")
+
+center_scotland <- st_centroid(scotland)
+
+knn_scotland1 <- knn2nb(knearneigh(st_coordinates(center_scotland), k = 1))
+knn_scotland2 <- knn2nb(knearneigh(st_coordinates(center_scotland), k = 2))
+knn_scotland3 <- knn2nb(knearneigh(st_coordinates(center_scotland), k = 3))
+
+par(mfrow = c(1, 3), mar = c(0, 0, 1, 0), oma = c(0, 0, 0, 0))
+
+plot(st_geometry(scotland), border = "lightgray", main = "k = 1", axes = FALSE, bty = "n")
+plot.nb(knn_scotland1, st_geometry(center_scotland), col = 'red', add = TRUE)
+
+plot(st_geometry(scotland), border = "lightgray", main = "k = 2", axes = FALSE, bty = "n")
+plot.nb(knn_scotland2, st_geometry(center_scotland), col = 'blue', add = TRUE)
+
+plot(st_geometry(scotland), border = "lightgray", main = "k = 3", axes = FALSE, bty = "n")
+plot.nb(knn_scotland3, st_geometry(center_scotland), col = 'purple', add = TRUE)
+```
+We can see from the above plots that not all regions are connected in the graph for $k=1$, but they are connected for $k=2, 3$.
+
+(b) (3 marks) Consider the queen-style and rook-style neighbors based on contiguity. Identify all the regions whose queen-style neighbors and rook-style neighbors are different, by giving the names of these regions. Highlight these regions and their neighboring regions in the map. You should fill these regions with one color and their neighboring regions with another color.
+
+```{r, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(patchwork)
+
+queen_neighbors <- poly2nb(scotland, queen = TRUE)
+rook_neighbors <- poly2nb(scotland, queen = FALSE)
+
+different_neighbors <- mapply(function(x, y) !identical(x, y), 
+                              queen_neighbors, rook_neighbors)
+
+as.character(scotland$name)[different_neighbors]
+```
+
+The regions with different queen-style and rook-style neighbors are EastLothian, Falkirk, Clackmannan and Edinburgh.
+
+```{r, warning=FALSE, message=FALSE, fig.margin = c(0, 0, 0, 0)}
+plot_neighbors <- function(region_name, neighbors, title) {
+  target_region <- scotland[scotland$name == region_name, ]
+  neighbor_indices <- neighbors[[which(scotland$name == region_name)]]
+  neighbor_regions <- scotland[neighbor_indices, ]
+  
+  scotland$region_type <- "Other"
+  scotland$region_type[scotland$name %in% target_region$name] <- "Area"
+  scotland$region_type[scotland$name %in% neighbor_regions$name] <- "Neighbor"
+  
+  scotland$region_type <- factor(scotland$region_type, 
+                                 levels = c("Area", "Neighbor", "Other"))
+
+  ggplot(data = scotland) +
+    geom_sf(aes(fill = region_type), color = "black") +
+    scale_fill_manual(values = c("Area" = "orange", "Neighbor" = "skyblue", 
+                                 "Other" = "white")) +
+    labs(title = paste(title, "\n", region_name), fill = "Region Type") + 
+    theme_minimal() +
+    theme(plot.margin = unit(c(0, 0, 0, 0), "cm"), 
+          axis.text.x = element_blank(), 
+          axis.text.y = element_blank(),
+          axis.title = element_blank(),
+          plot.title = element_text(hjust = 0.5, size = 8, lineheight = 1.2),
+          legend.title = element_text(size = 8),
+          legend.text = element_text(size = 7)
+          )
+}
+
+plot_neighbors_for_region <- function(region_name, queen_neighbors, rook_neighbors) {
+  queen_plot <- plot_neighbors(region_name, queen_neighbors, "Queen Neighbors for")
+  rook_plot <- plot_neighbors(region_name, rook_neighbors, "Rook Neighbors for")
+  
+  combined_plot <- queen_plot + rook_plot + plot_layout(ncol = 2, widths = c(1, 1))
+  
+  return(combined_plot)
+}
+
+regions <- c("EastLothian", "Falkirk", "Clackmannan", "Edinburgh")
+all_plots <- list()
+
+for (region_name in regions) {
+  all_plots[[region_name]] <- plot_neighbors_for_region(region_name, 
+                                                        queen_neighbors, 
+                                                        rook_neighbors)
+}
+
+wrap_plots(all_plots, ncol = 2) + plot_layout(guides = 'collect')
+```
+
+(c) (3 marks) Consider the count of lip cancers in the variable `cancer`. Compute and report the Moran's I statistic using the rooks-style neighborhood and B-style weights. Then use the Moran's I to determine whether there exists positive spatial dependence for `cancer`, in each of the three tests: (i) normal test (without skewness correction); (ii) permutation test; (iii) Monte Carlo test by assuming that the count in each region follows a Poisson distribution with expectation given in the variable `expected`. Comment on your results.
+
+```{r, warning=FALSE, message=FALSE}
+rook_weights <- nb2listw(rook_neighbors, style = "B")
+
+# (i) Normal test (without skewness correction)
+moran.test(scotland$cancer, rook_weights, randomisation = FALSE, 
+           alternative = "greater")
+
+# (ii) Permutation test
+set.seed(5226)
+
+moran.mc(scotland$cancer, rook_weights, nsim = 9999)
+
+# (iii) Monte Carlo test by assuming that the count in each region follows a 
+# Poisson distribution with expectation given in the variable `expected`
+set.seed(5226)
+
+moran.pois <- function(y, exp, listw, nsim) {
+  Tstat <- rep(0, nsim)
+  Tstat[1] <- moran(y, listw, length(y), Szero(listw))$I
+  pmeans <- exp
+  for (ii in 2:nsim) {
+    tmp <- rpois(length(pmeans), pmeans)
+    Tstat[ii] <- moran(tmp, listw, length(y), Szero(listw))$I
+  }
+  sum(Tstat[-1] > Tstat[1]) / (nsim + 1)
+}
+
+moran.pois(scotland$cancer, scotland$expected, rook_weights, nsim = 9999)
+```
+The Moran's I statistic (0.1394542) indicates a positive spatial autocorrelation i.e. regions with higher cancer counts tend to be close to other regions with higher counts, and regions with lower cancer counts tend to cluster together.
+
+Since the $p$-values of all three tests above (0.03511, 0.0444, 0.0003) are less than 0.05, we reject the null hypothesis of no spatial autocorrelation at the 5% level i.e. data is not randomly distributed spatially. This suggests there is evidence of positive spatial dependence in the distribution of lip cancer cases across the regions in Scotland.
+
+(d) (3 marks) Repeat part (c) with Geary's c statistic. Do you see any difference in the results and your conclusion?
+
+```{r, warning=FALSE, message=FALSE}
+# (i) Geary C test under normality
+geary.test(scotland$cancer, rook_weights, randomisation = FALSE)
+
+# (ii) Permutation test
+set.seed(5226)
+
+geary.mc(scotland$cancer, rook_weights, nsim=9999)
+
+# (iii) Monte Carlo test by assuming that the count in each region follows a 
+# Poisson distribution with expectation given in the variable `expected`
+set.seed(5226)
+
+geary.pois <- function(y, exp, listw, nsim) {
+     Tstat <- rep(0, nsim)
+     Tstat[1] <- geary(y, listw, length(y), length(y)-1, Szero(listw))$C
+     pmeans <- exp
+     for(ii in 2:nsim) {
+       tmp <- rpois(rep(1, length(pmeans)), pmeans)
+       Tstat[ii] <- geary(tmp, listw, length(y), length(y)-1, Szero(listw))$C
+    }
+    sum(Tstat[-1] < Tstat[1])/(nsim+1)
+}
+
+geary.pois(scotland$cancer, scotland$expected, rook_weights, 9999)
+```
+The Geary's C statistic (0.7539) indicates positive spatial autocorrelation, meaning that neighboring regions with similar cancer counts tend to cluster together. 
+
+Since the $p$-values of all three tests above (0.02261, 0.0443, 0) are less than 0.05, we reject the null hypothesis of no spatial autocorrelation at the 5% level i.e. data is not randomly distributed spatially, which suggests there is evidence of positive spatial dependence. Therefore, we do not see any significant difference in the conclusions of the Geary's c statistic tests with the Moran's I statistic tests.
+
+(e) (3 marks) Consider the variable `logratio`. Compute the local Moran' I statistics for all districts of Scotland, using the rook-style neighborhood and B-style weights. Plot a map of all districts in Scotland, and highlight those districts with significant local Moran' I on the map at the significance level 0.05. You should use different colors for the four types of significant districts: High-High, High-Low, Low-High, and Low-Low.
+
+```{r, warning=FALSE, message=FALSE}
+loc.moran <- localmoran(scotland$logratio, rook_weights, alternative = "two.sided")
+
+mp <- moran.plot(scotland$logratio, rook_weights)
+
+scotland$quadrant <- NA
+p.2side <- loc.moran[, "Pr(z != E(Ii))"]
+
+# High-High
+scotland[(mp$x >= 0 & mp$wx >= 0) & (p.2side <= 0.05), "quadrant"] <- 1
+
+# High-Low
+scotland[(mp$x >= 0 & mp$wx <= 0) & (p.2side <= 0.05), "quadrant"] <- 3
+
+# Low-High
+scotland[(mp$x <= 0 & mp$wx >= 0) & (p.2side <= 0.05), "quadrant"] <- 4
+
+# Low-Low
+scotland[(mp$x <= 0 & mp$wx <= 0) & (p.2side <= 0.05), "quadrant"] <- 2
+
+# Non-significant
+scotland[(p.2side > 0.05), "quadrant"] <- 5
+
+ggplot(data = scotland) +
+  geom_sf(aes(fill = as.factor(quadrant))) +
+  coord_sf(expand = FALSE) +
+  scale_fill_manual(breaks = c(1, 2, 3, 4, 5),
+                    labels = c("High-High", "Low-Low", "High-Low", "Low-High", 
+                               "Non-significant"),
+                    values = c("red", "blue", "lightpink", "skyblue2", "white")) +
+  theme(legend.title = element_blank())
+```
+
+---
+
+## Question 2
+
+(15 marks) Modeling the areal data. One question of interest is the association between working outdoors and lip cancer (measured by `logratio`). The `percentAFF` variable quantifies the percent of the district population working in Agriculture, Forestry, or Fishing. All three occupations require large amounts of outdoor time. In addition, we also want to know whether there are any spatial trends in the north-south and east-west direction.
+
+(a) (3 marks) Fit a simple linear regression model, using `logratio` as the response variable, and using `percentAFF`, `eastkm`, and `northkm` as the predictors. Report the summary of model fit and determine which of these predictors are significant. Drop any insignificant predictor(s) from the model and refit the model with only significant predictors. Use plots to check if there is any violation of homogeneous variance assumption or the normality assumption.
+
+```{r, warning=FALSE, message=FALSE}
+library(nlme)
+
+linear_model <- gls(logratio ~ percentAFF + eastkm + northkm, 
+                        data = scotland, 
+                        method = "ML")
+summary(linear_model)
+```
+
+We drop predictors with $p$-value > 0.05. Therefore, we will drop the predictor variable `eastkm`.
+
+```{r, warning=FALSE, message=FALSE}
+linear_model2 <- gls(logratio ~ percentAFF + northkm, 
+                     data = scotland, 
+                     method = "ML")
+
+summary(linear_model2)
+
+standardized_residuals <- scale(residuals(linear_model2))
+
+fitted_vals <- fitted(linear_model2)
+residuals_vals <- residuals(linear_model2)
+
+par(mfrow = c(1, 2))
+
+plot(fitted_vals, residuals_vals,
+     main = "Standardized Residuals vs Fitted Values",
+     xlab = "Fitted values", ylab = "Residuals",
+     pch = 20, col = "blue", cex.main = 0.8)
+abline(h = 0, col = "red")
+
+qqnorm(standardized_residuals, main = "Normal Q-Q Plot", cex.main = 0.8)
+qqline(standardized_residuals, col = "red")
+```
+
+From the residuals vs fitted values plot, we can see that most of the residuals are randomly scattered around the horizontal line at zero which does not violate the homogeneous variance assumption. From the normal Q-Q plot, we can see that most of the points lie close to the red line but deviates from the line beyond 1 in the x-axis. This would imply that the residuals are mostly normally distribution with some skewness.
+
+(b) (3 marks) Following the last model you have fitted in (a), refit it using weighted least squares by assuming that the individual variance is proportional to the reciprocal of the variable `expected`. Report the summary of model fit. Compare the results with those in (a). Which model is better?
+
+```{r, warning=FALSE, message=FALSE}
+linear_model_wls <- gls(logratio ~ percentAFF + northkm, 
+                        data = scotland, 
+                        method = "ML",
+                        weights = varFixed(~ 1 / expected))
+
+summary(linear_model_wls)
+```
+
+`linear_model2` appears to be the better model than `linear_model_wls` because of its lower AIC (114.46 vs 119.22) and BIC (122.34 vs 127.10) values, indicating that it provides a better fit to the data. Additionally, the first model has a smaller residual standard error (0.66 vs 1.77), suggesting that its predictions are closer to the actual data.
+
+(c) (3 marks) Following (b), for the better model you have determined in (b), we check if it is necessary to fit a further model to account for spatial dependence in the residuals. Use `gls`() to fit a model such that the residuals are modeled by an exponential semivariogram. Report the summary of model fit. Compare the new model with those in (a) and (b). Determine which model gives the best fit to the data.
+
+```{r, warning=FALSE, message=FALSE}
+wts <- nb2listw(rook_neighbors, style = 'B')
+residuals_vals <- as.vector(residuals_vals)
+moran.plot(residuals_vals, wts, main = "Moran's I for Residuals")
+```
+For `linear_model2`, the Moran's plot shows a slight positive trend of the residuals, which might suggest a need to fit a further model to account for spatial dependence in the residuals. Therefore, we fit a model such that the residuals are modeled by an exponential semivariogram.
+
+```{r, warning=FALSE, message=FALSE}
+model_exp <- gls(logratio ~ percentAFF + northkm, 
+                 data = scotland, 
+                 method = "ML",
+                 correlation = corExp(form = ~ eastkm + northkm, nugget = TRUE))
+
+summary(model_exp)
+```
+`linear_model2` remains the model with the lowest AIC (114.4564) and BIC (122.3376), alongside a relatively low residual standard error of 0.6605827. `linear_model_wls` has a higher AIC (119.2159) and BIC (127.0971) with a higher residual standard error (1.77167), despite including a variance function to account for heteroscedasticity. `model_exp` has a lower AIC (116.2772) and a higher BIC (128.0989) than `linear_model_wls`, but neither values are as close to that of `linear_model2`. Therefore, `linear_model2` is still the best model among the three.
+
+(d) (3 marks) Following (a), for only the significant predictors in (a), fit the one-parameter SAR model using the B-style weights with rook-style neighbors and constant error variance. Report the summary of model fit. Use the permutation test based on Moran's I to determine if there exists positive spatial dependence in the residuals. Does the conclusion from this test agree with the test for spatial dependence in the summary of SAR model?
+
+```{r, warning=FALSE, message=FALSE}
+library(spatialreg)
+
+scotland_nb <- poly2nb(scotland, queen = FALSE)
+wts <- nb2listw(scotland_nb, style = "B")
+
+scotland_sar <- spautolm(logratio ~ percentAFF + northkm, 
+                  data = scotland, listw = wts)
+
+summary(scotland_sar)
+
+set.seed(5226)
+
+moran.mc(residuals(scotland_sar), listw = wts, nsim = 9999)
+```
+The summary of the SAR model results show that the Lambda value is 0.046519 with a $p$-value of 0.43262, indicating no significant spatial dependence in the residuals after fitting the model. Similarly, the permutation test based on Moran's I yields a statistic of -0.0029902 and a $p$-value of 0.4124, which further confirms the absence of significant spatial autocorrelation in the residuals. 
+
+(e) (3 marks) Repeat (d) for the one-parameter CAR model. Does your conclusion change regarding the spatial dependence in the residuals?
+
+```{r, warning=FALSE, message=FALSE}
+scotland_car <- spautolm(logratio ~ percentAFF + northkm, 
+                  data=scotland, listw=wts, family="CAR")
+
+summary(scotland_car)
+
+set.seed(5226)
+
+moran.mc(residuals(scotland_car), listw = wts, nsim = 9999)
+```
+For the CAR model, the Lambda value is small (0.090028) with a $p$-value of 0.42619, which suggests no significant spatial dependence. The permutation test based on Moran's I gives a statistic of -0.098752 and $p$-value of 0.8252, which also does not indicate evidence of significant spatial autocorrelation in the residuals. Thus, the conclusion in the case of the SAR model does not change for the CAR model.
+
+---
+
+\newpage
+
+## PART II (30 MARKS): COURSE PROJECT
+
+## Introduction
+
+For this project, we aim to study how natural gas consumption differs across local authorities in England, including whether several socioeconomic and demographic factors can explain these differences.
+
+## Source of Data
+
+We compiled 2022 census data into a single areal dataset, `uk_gas_data.xlsx`, using official UK government sources including GOV.UK, the Office for National Statistics, UK Parliament, and the UK Data Service. This dataset contains 309 observations, each representing a local authority in England, with the following variables:
+
+- **`region`**: Region of the local authority.
+- **`local_authority`**: Name of the local authority.
+- **`ltla22cd`**: Code assigned to the local authority.
+- **`gas_consump`**: Median gas consumption of households in kilowatt hours (KWh) per meter in 2022.
+- **`gas_grid`**: Percentage of properties in the local authority connected to the gas grid in 2022.
+- **`population`**: Population of the local authority in 2022.
+- **`pop_density`**: Population density of the local authority in 2022.
+- **`weekly_pay`**: Median weekly salary in £ for individuals in the local authority in 2022.
+
+Discrepancies were initially observed between the number of local authorities in `uk_gas_data.xlsx` and those in the `england_ltla_2022.shp` shapefile. The `uk_gas_data.xlsx` file listed fewer than 309 local authorities due to recent administrative boundary changes, which merged approximately 17 local authorities into four larger ones. To address this, we assumed that the variable values in `uk_gas_data.xlsx` for the current local authorities could be mapped to their corresponding areas in the shapefile under previous boundaries, based on the assumption that socioeconomic and demographic characteristics remain relatively stable despite administrative changes. To align the datasets and reach 309 observations, we duplicated rows in `uk_gas_data.xlsx` for the following local authorities to reflect the shapefile’s older boundaries:
+
+- **North Yorkshire** (previously Craven, Selby, Richmondshire, Hambleton, Scarborough, Harrogate, Ryedale)
+- **Somerset** (previously Sedgemoor, Mendip, Somerset West and Taunton, South Somerset)
+- **Westmorland and Furness** (previously Barrow-in-Furness, South Lakeland, Eden)
+- **Cumberland** (previously Allerdale, Carlisle, Copeland)
+
+For the local authority 'Isles of Scilly,' both `gas_consump` and `gas_grid` values were recorded as zero. Since areas without properties connected to the gas grid naturally exhibit negligible gas consumption, including this region would not be informative for our analyses. Therefore, we have excluded Isles of Scilly from our dataset to focus our analysis on the remaining 308 observations instead.
+
+## Purpose
+
+In analyzing the spatial distribution of natural gas demand across England, we aim to address questions such as:
+
+- How is gas consumption spatially distributed in England?
+- To what extent does the percentage of properties connected to the gas grid influence gas consumption within a local authority?
+- How do population and population density correlate with spatial patterns in gas consumption?
+- Are local authorities with higher average weekly wages spatially associated with higher gas consumption levels?
+
+To achieve these objectives, we will use the following statistical methods:
+
+- **Moran's I**: To assess overall spatial autocorrelation in gas consumption and detect spatial clustering.
+- **Geary's C**: To measure local spatial autocorrelation, highlighting areas with significant deviations in gas consumption.
+- **Generalized Least Squares (GLS)**: To model gas consumption relationships while addressing spatial heteroskedasticity.
+- **Simultaneous Auto-Regressive (SAR) Model**: To incorporate spatial autocorrelation by accounting for the influence of neighboring regions and regional spillover effects.
+- **Conditional Auto-Regressive (CAR) Model**: To capture spatial dependencies by modeling conditional relationships among neighboring regions, emphasizing localized interactions.
+
+## Analysis
+
+## Exploring the Data
+
+We begin by mapping our variables `gas_consump`, `gas_grid`, `population`, `pop_density`, and `weekly_pay`, across England to visualize their spatial distribution.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(readxl)
+library(dplyr)
+library(RColorBrewer)
+library(gridExtra)
+library(ggplot2)
+library(sf)
+library(grid)
+library(png)
+```
+
+```{r, fig.width = 8.27, fig.height = 11.69, message=FALSE, warning=FALSE}
+uk_gas_data <- read_excel("uk_gas_data.xlsx", sheet = "Data")
+la_map <- st_read("england_ltla_2022.shp", quiet=TRUE)
+merged_data <- la_map %>%
+  left_join(uk_gas_data, by = "ltla22cd") %>%
+  filter(gas_consump != 0)  # Remove Isles of Scilly
+
+variables <- list(
+  list(var = "gas_consump", title = "Gas Consumption"),
+  list(var = "gas_grid", title = "Properties to Gas Grid"),
+  list(var = "population", title = "Population"),
+  list(var = "pop_density", title = "Population Density"),
+  list(var = "weekly_pay", title = "Average Weekly Pay")
+)
+
+create_plot <- function(data, var, title) {
+  ggplot(data = data) + geom_sf(aes_string(fill = var)) +
+    scale_fill_gradientn(colors = brewer.pal(9, "YlGnBu")) +
+    theme_minimal() + labs(title = title, fill = title) +
+    theme(axis.text = element_blank(), axis.ticks = element_blank(),
+          legend.title = element_blank())
+}
+
+plots <- lapply(variables, function(v) {
+  create_plot(merged_data, v$var, v$title)
+})
+
+img_grob <- rasterGrob(readPNG("regions.png"), interpolate = TRUE)
+plots_with_image <- c(plots, list(img_grob))
+grid.arrange(grobs = plots_with_image, ncol = 2, nrow = 3)
+```
+
+Based on these plots, and referring to the regional map of England at the bottom right corner, we observe the following:
+
+- **Gas Consumption**: Higher gas consumption is concentrated in the South East/London, with moderate levels in the Midlands/North West and the lowest levels of consumption in the South West.
+
+- **Properties Connected to the Gas Grid**: Higher percentages of properties connected to the gas grid are mostly seen in the North, extending through some parts of the Midlands and South East. Lower connection percentages are generally observed in the East and South West.
+
+- **Population**: Population levels are more dispersed, with clusters observed in parts of the North, South, and South West regions. Birmingham, located in the Midlands, stands out as the most populous local authority, despite its surrounding areas having lower populations. We note that some of the clustering of higher population levels in the North and South West may be due to the assumptions made in our dataset regarding the old vs current local authority boundaries (see 'Source of Data').
+
+- **Population Density**: The most densely populated local authorities are concentrated in the South East, mainly London, with moderately dense clusters in the Midlands and North West.
+
+- **Average Weekly Pay**: The distribution of `weekly_pay` closely resembles that of `pop_density`, with regions that have the highest weekly pay seen in the South East/London and gradually decreasing in regions farther away.
+
+## K-Nearest Neighbor (KNN) Analysis
+
+We will conduct K-nearest neighbor (KNN) analysis using Queen style with B-style weights to explore spatial relationships across local authorities. This will help to create the spatial weight matrix that we will use for assessing spatial autocorrelation and identifying spatial patterns later in the project.
+
+```{r, message=FALSE, warning=FALSE}
+coords <- st_centroid(st_geometry(merged_data))
+coords_matrix <- st_coordinates(coords)
+
+k_nearest_neighbors <- knn2nb(knearneigh(coords_matrix, k = 3))
+queen_weights <- nb2listw(k_nearest_neighbors, style = "B")
+
+par(mfrow = c(1, 1), mar = c(3, 3, 1, 1))
+plot(st_geometry(merged_data), border = "gray", main = "Queen Style Neighbors")
+plot(k_nearest_neighbors, coords, add = TRUE, col = "blue")
+```
+The plot shows that regions in England form tight clusters based on their spatial proximity, primarily in the South East, West Midlands, North West, and North. This clustering provides insights into the spatial distribution of regions, which could later help in studying how regional variables such as gas consumption may exhibit similar spatial patterns within these geographic clusters.
+
+## Cluster Analysis
+
+## Moran's I
+
+We proceed with Moran's I to investigate if the observed clusters also display significant patterns of spatial autocorrelation in terms of `gas_consump`, `gas_grid`, `population`, `pop_density`, and `weekly_pay`. However, before performing the Moran's I test on our variables, we will first transform them to achieve a more normal distribution and/or scale the values so that the test is applied to these adjusted variables.
+
+```{r, message=FALSE, warning=FALSE}
+# Apply transformations to the variables
+merged_data$log_gas_consump <- log(merged_data$gas_consump)
+merged_data$sqrt_gas_grid <- sqrt(merged_data$gas_grid)
+merged_data$log_population <- log(merged_data$population)
+merged_data$log_pop_density <- log(merged_data$pop_density)
+merged_data$log_weekly_pay <- log(merged_data$weekly_pay)
+transformed_vars <- c("log_gas_consump", "sqrt_gas_grid", "log_population", 
+                      "log_pop_density", "log_weekly_pay")
+
+for (var in transformed_vars) {
+  moran_result <- moran.test(merged_data[[var]], queen_weights, 
+                             randomisation = FALSE, alternative = "greater")
+  
+  moran_p_value <- moran_result$p.value
+  moran_estimate <- moran_result$estimate[1]
+  
+  cat("\n[Moran's I for", var, "]\n")
+  cat("Moran's I Estimate:", moran_estimate, "\n")
+  cat("p-value:", moran_p_value, "\n")
+}
+```
+All transformed variables show significant positive spatial autocorrelation, with $p$-values < 0.05 and Moran’s I estimates ranging from 0.35 to 0.65. These positive Moran’s I values suggest that similar values for the transformed variables such as gas consumption, access to the gas grid, population, population density, and weekly pay are spatially clustered across regions. This indicates that neighboring regions tend to exhibit similar characteristics, emphasizing the need to account for spatial dependencies in further analyses of gas consumption and socioeconomic factors.
+
+## Geary's C
+
+We now conduct Geary’s C test to complement the Moran's I test by providing a more localized measure of spatial autocorrelation for the same transformed variables.
+
+```{r, message=FALSE, warning=FALSE}
+for (var in transformed_vars) {
+  result <- geary.test(merged_data[[var]], queen_weights, randomisation = FALSE)
+  
+  geary_p_value <- result$p.value
+  geary_estimate <- result$estimate[1]
+  
+  cat("\n[Geary's C Test for", var, "]\n")
+  cat("Geary's C Estimate:", geary_estimate, "\n")
+  cat("p-value:", geary_p_value, "\n")
+}
+```
+The Geary's C test results reveal significant local spatial autocorrelation for all transformed variables, as indicated by the $p$-values being less than 0.05. The Geary's C estimates for transformed variables such as gas consumption, gas grid properties, population, population density, and weekly pay suggest that these variables exhibit clustering at a local level, with values ranging from 0.367 to 0.627. These findings imply that certain areas of the dataset experience similar values for these transformed variables, which may help identify regions with distinctive patterns of gas consumption and socioeconomic characteristics.
+
+## Spatial Regression Modeling
+
+Since the Moran's I and Geary's C tests showed that the variables are spatially dependent, we would need to account for this spatial dependence when creating a model using spatial regression techniques instead of classical regression models e.g. Ordinary Least Squares (OLS). For our project, the following models created will have `log_gas_consump` as the response variable while `sqrt_gas_grid`, `log_population`, `log_pop_density`, and `log_weekly_pay` are the predictor variables.
+
+## Generalized Least Squares (GLS)
+
+We will implement the Generalized Least Squares (GLS) method to allow for modeling the correlation structure in the residuals, making it suitable for spatially autocorrelated data.
+
+```{r, message=FALSE, warning=FALSE}
+gas_gls_model <- gls(log_gas_consump ~ sqrt_gas_grid + log_population 
+                     + log_pop_density + log_weekly_pay,
+                     data = merged_data, method = "ML")
+
+cat("AIC: ", AIC(gas_gls_model), "\n")
+cat("BIC: ", BIC(gas_gls_model), "\n")
+
+summary_gas_gls <- summary(gas_gls_model)
+print(summary_gas_gls$tTable)
+
+```
+We see that `log_population` has a $p$-value of 0.9839 which statistically insignificant so we will drop this variable and refit the model to see if the results improve.
+
+```{r, message=FALSE, warning=FALSE}
+gas_gls_model2 <- gls(log_gas_consump ~ sqrt_gas_grid + log_pop_density 
+                      + log_weekly_pay,
+                     data = merged_data, method = "ML")
+
+cat("AIC: ", AIC(gas_gls_model2), "\n")
+cat("BIC: ", BIC(gas_gls_model2), "\n")
+
+summary_gas_gls <- summary(gas_gls_model2)
+print(summary_gas_gls$tTable)
+
+par(mfrow = c(1, 2))
+
+plot(residuals(gas_gls_model2) ~ fitted(gas_gls_model2), 
+     xlab = "Fitted Values", ylab = "Residuals", 
+     main = "Residuals vs Fitted Values")
+abline(h = 0, col = "red", lwd = 1)
+
+qqnorm(residuals(gas_gls_model2), main = "Normal Q-Q Plot")
+qqline(residuals(gas_gls_model2), col = "red")
+```
+We can see that the refitted model has definitely improved because it achieves lower AIC and BIC values, with all the variables statistically significant. In addition, the residuals vs fitted values plot for the GLS model shows that the residuals are evenly scattered around zero, indicating no signs of heteroskedasticity, and suggests that the refitted model has appropriately accounted for non-constant variance. The Q-Q plot indicates that most residuals follow a normal distribution, but with some skewness as we see a slight deviation above the red line at higher values. 
+
+Given this observation, the next step is to address the residual normality issue by applying more robust regression methods, such as Simultaneous Auto-Regressive (SAR) and Conditional Auto-Regressive (CAR) models, which are better equipped to handle spatial dependence and any remaining non-normality in the residuals.
+
+## Simultaneous Auto-Regressive (SAR) Model
+
+```{r, message=FALSE, warning=FALSE}
+sar_model <- spautolm(log_gas_consump ~ sqrt_gas_grid + log_pop_density 
+                      + log_weekly_pay, 
+                     data = merged_data, 
+                     listw = queen_weights)
+
+summary(sar_model)
+```
+## Conditional Auto-Regressive (CAR) Model
+
+```{r, message=FALSE, warning=FALSE}
+car_model <- spautolm(log_gas_consump ~ sqrt_gas_grid + log_pop_density + 
+                        log_weekly_pay, 
+                      data = merged_data, listw = queen_weights, 
+                      family = "CAR")
+
+summary(car_model)
+```
+We can see that, among the three models, the SAR model outperforms both the refitted GLS model and CAR model in terms of model fit, as reflected by the lower AIC (SAR: -701.48, GLS: -565.019, CAR: -563.08) and higher log-likelihood values. The significant lambda (0.2279, $p$ < 2.22e-16) in the SAR model indicates that spatial autocorrelation plays a critical role in gas consumption, suggesting that gas consumption is influenced not only by local factors but also by the consumption patterns in neighboring regions.
+
+## Findings
+
+Given that we have identified the SAR model as the best model to account for spatial dependencies in gas consumption across England and to examine its relationship with other socioeconomic factors, we can use it to address the main questions posed earlier in our report.
+
+- **How is gas consumption spatially distributed in England?** Significant positive spatial autocorrelation (lambda = 0.2279, $p$ < 2.2e-16) shows that gas consumption in one area is influenced by neighboring regions, which highlights spatial dependencies in consumption patterns across local authorities.
+
+- **To what extent does the percentage of properties connected to the gas grid influence gas consumption within a local authority?** The positive relationship (`sqrt_gas_grid` coefficient = 0.2505, $p$ = 0.006975) suggests that local authorities with a higher percentage of gas grid connections tend to have higher gas consumption. This is expected, as it reflects the presence of more gas infrastructure, which supports higher demand.
+
+- **How do population and population density correlate with spatial patterns in gas consumption?** While the SAR model does not include the log_population variable, we previously observed a very weak negative relationship between `log_population` and `log_gas_consump` in the GLS model. In the SAR model, however, population density is negatively correlated with gas consumption (`log_pop_density` coefficient = -0.0225, $p$ < 0.00001). This suggests that higher population density may reduce individual gas use, likely due to energy-sharing in urban areas, and may increase the use of alternative energy sources.
+
+- **Are local authorities with higher average weekly wages spatially associated with higher gas consumption levels?** Higher average weekly wages are positively linked to gas consumption (`log_weekly_pay` coefficient = 0.3109, $p$ < 0.00001), indicating that wealthier areas consume more gas, likely due to larger homes and higher energy needs.
+
+## Conclusion 
+
+Our analysis demonstrates significant spatial dependence in the distribution of gas consumption across England, with socioeconomic factors such as access to the gas grid, population density, and household wages influencing these patterns. The SAR model effectively captures how these factors shape gas consumption by accounting for spatial dependencies between neighboring regions. These findings can inform energy policy by highlighting the importance of regional infrastructure and socioeconomic conditions in shaping consumption patterns, helping to target interventions where they are most needed.
